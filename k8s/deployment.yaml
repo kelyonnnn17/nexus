@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-app
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nexus-app
+  template:
+    metadata:
+      labels:
+        app: nexus-app
+    spec:
+      containers:
+      - name: nexus-app
+        # Your Docker Hub Image
+        image: kelyonnnn17/nexus-app:v1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5050 # UPDATED to 5050
+        env:
+        - name: VERSION
+          value: "v1"
+        - name: BG_COLOR
+          value: "blue"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5050       # UPDATED to 5050
+          initialDelaySeconds: 5
+          periodSeconds: 10

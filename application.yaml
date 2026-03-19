@@ -8,11 +8,11 @@ spec:
   source:
     # CHANGE THIS TO YOUR GITHUB REPO URL
     repoURL: https://github.com/kelyonnnn17/nexus.git
-    targetRevision: dev_kalyan
+    targetRevision: dev_shubhang
     path: k8s
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: nexus
   syncPolicy:
     automated:
       prune: true

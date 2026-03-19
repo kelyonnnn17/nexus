@@ -8,7 +8,7 @@ app = Flask(__name__)
 # If K8s doesn't provide these variables, we use defaults ('v1', 'blue').
 # This lets us change the color just by editing a YAML file later.
 APP_VERSION = os.getenv("VERSION", "v1")
-BG_COLOR = os.getenv("BG_COLOR", "blue")
+BG_COLOR = os.getenv("BG_COLOR", "green")
 
 @app.route("/")
 def home():

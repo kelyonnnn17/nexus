@@ -17,19 +17,28 @@ spec:
     spec:
       containers:
       - name: nexus-app
-        # Your Docker Hub Image
         image: kelyonnnn17/nexus-app:v1
         imagePullPolicy: Always
         ports:
-        - containerPort: 5050 # UPDATED to 5050
+        - containerPort: 5050
         env:
         - name: VERSION
           value: "v1"
         - name: BG_COLOR
           value: "green"
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5050
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
         livenessProbe:
           httpGet:
             path: /healthz
-            port: 5050       # UPDATED to 5050
+            port: 5050
           initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3

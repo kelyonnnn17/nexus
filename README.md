@@ -1,89 +1,112 @@
 # Nexus: Self-Healing GitOps Platform
 
-Nexus is a hands-on GitOps reference project for deploying a Flask microservice on Kubernetes with automatic reconciliation, self-healing, chaos testing, and monitoring.
+Nexus is an open-source learning project that shows how to run a Kubernetes app with a full GitOps workflow: deploy from Git, auto-heal drift, observe runtime metrics, and run controlled chaos tests.
 
-## What this project demonstrates
+## Quick Command Map
 
-- GitOps deployment with ArgoCD (auto-sync + self-heal)
-- Kubernetes app deployment with Kustomize
-- Observability stack with Prometheus + Grafana
-- Chaos engineering with Chaos Mesh
-- End-to-end workflow from Git commit to live cluster update
+Use this section when you want a fast command without reading full docs.
+
+| If you want to... | Run this command |
+| --- | --- |
+| Start local cluster | `minikube start --driver=docker` |
+| Verify cluster is healthy | `kubectl get nodes` |
+| See GitOps app states | `kubectl get application -n argocd -o wide` |
+| Watch app rollout in real time | `kubectl get pods -n nexus -w` |
+| Open Nexus app locally | `kubectl -n nexus port-forward svc/nexus-service 18080:80` |
+| Open ArgoCD UI | `minikube service argocd-server -n argocd` |
+| Get ArgoCD admin password (macOS/Linux) | `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode; echo` |
+| Get ArgoCD admin password (PowerShell) | `$b64 = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}"; [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))` |
+| Open Grafana locally | `kubectl -n monitoring port-forward svc/kube-prom-stack-grafana 3000:80` |
+| Trigger self-healing manually | `kubectl delete pod -n nexus -l app=nexus-app` |
+| Test drift correction | `kubectl scale deployment nexus-app -n nexus --replicas=1` |
+| Check chaos experiments | `kubectl get schedule,podchaos -n chaos-mesh` |
+| Recover from EOF / TLS timeout | `minikube update-context; minikube start --driver=docker` |
+
+## Features
+
+- **GitOps deployment with ArgoCD**
+  - Automatic sync from Git to cluster
+  - Automatic drift correction (`selfHeal`) and cleanup (`prune`)
+- **Kubernetes app operations**
+  - Flask app deployed as a replicated `Deployment`
+  - Service exposure through `Service` + local port-forward
+- **Self-healing behavior**
+  - Pod replacement on failure/deletion
+  - Desired state restoration after manual drift
+- **Observability stack**
+  - Prometheus Operator-based monitoring
+  - Grafana datasource + dashboards from repo manifests
+- **Chaos engineering integration**
+  - Chaos Mesh `PodChaos` + schedule to simulate disruptions
+  - Resilience validation under repeated pod terminations
+
+## How it works (high level)
+
+1. You push manifest changes to Git.
+2. ArgoCD watches your branch and syncs changes into Minikube.
+3. Kubernetes applies rollout and keeps desired replicas running.
+4. Prometheus/Grafana expose health and performance signals.
+5. Chaos Mesh injects failures; Kubernetes + ArgoCD recover state.
 
 ## Architecture
 
-- **App**: Flask service (`app/`)
-- **Container**: Docker image (`kelyonnnn17/nexus-app:v1` by default)
+- **Application**: Flask (`app/`)
+- **Container image**: `kelyonnnn17/nexus-app:v1` (default)
 - **Cluster**: Minikube
-- **GitOps**: ArgoCD Applications
-  - `nexus-app` -> `k8s/`
-  - `nexus-monitoring` -> `monitoring/`
-  - `nexus-chaos` -> `chaos/`
+- **GitOps controller**: ArgoCD
+- **Monitoring**: kube-prometheus-stack + Grafana
+- **Chaos**: Chaos Mesh
 
-## Repository structure
+ArgoCD application mapping:
+
+- `nexus-app` -> `k8s/`
+- `nexus-monitoring` -> `monitoring/`
+- `nexus-chaos` -> `chaos/`
+
+## Repository layout
 
 ```text
-app/                    Flask app + Dockerfile
-k8s/                    Base app deployment/service manifests
-monitoring/             Grafana datasource + PrometheusRule + dashboards
-chaos/                  PodChaos + chaos schedule manifests
-argocd/                 ArgoCD Application manifests for monitoring + chaos
-application.yaml        ArgoCD Application manifest for core app
+app/                          Flask source + Dockerfile
+k8s/                          Core app manifests (namespace, deploy, service)
+monitoring/                   PrometheusRule, Grafana datasource, dashboards
+chaos/                        PodChaos and schedule manifests
+argocd/                       ArgoCD Applications (monitoring + chaos)
+application.yaml              ArgoCD Application (core app)
+INSTALLATION.md               Full setup/install guide
 ```
 
-## Prerequisites
+## Requirements
 
-Install these locally:
+You need these tools installed:
 
-- Docker Desktop
+- Docker Desktop / Docker Engine
 - Minikube
 - kubectl
-- Helm v3+
+- Helm (v3+)
+- Git
+
+For complete install commands by OS, see [INSTALLATION.md](INSTALLATION.md).
 
 ## Quick start
 
-### 1) Start local Kubernetes
+### 1) Start cluster
 
-```powershell
+```bash
 minikube start --driver=docker
 kubectl get nodes
 ```
 
-If cluster access breaks after restart:
+### 2) Install dependencies
 
-```powershell
-minikube update-context
-```
+Follow [INSTALLATION.md](INSTALLATION.md) to install:
 
-### 2) Install ArgoCD
+- ArgoCD
+- kube-prometheus-stack
+- Chaos Mesh
 
-```powershell
-kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml --server-side --force-conflicts
-kubectl get pods -n argocd
-```
+### 3) Configure your repo + branch
 
-### 3) Install monitoring dependencies (Prometheus Operator CRDs)
-
-```powershell
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-helm upgrade --install kube-prom-stack prometheus-community/kube-prometheus-stack -n monitoring --create-namespace
-kubectl get crd | findstr monitoring.coreos.com
-```
-
-### 4) Install chaos dependencies (Chaos Mesh CRDs)
-
-```powershell
-helm repo add chaos-mesh https://charts.chaos-mesh.org
-helm repo update
-helm upgrade --install chaos-mesh chaos-mesh/chaos-mesh -n chaos-mesh --create-namespace --set chaosDaemon.runtime=containerd --set chaosDaemon.socketPath=/run/containerd/containerd.sock
-kubectl get crd | findstr chaos-mesh.org
-```
-
-### 5) Point ArgoCD manifests to your fork/branch
-
-Update these files before applying:
+Update these manifests before applying:
 
 - `application.yaml`
 - `argocd/application-monitoring.yaml`
@@ -91,10 +114,10 @@ Update these files before applying:
 
 Set:
 
-- `spec.source.repoURL` -> your GitHub repo URL
-- `spec.source.targetRevision` -> your branch (for example `main`)
+- `spec.source.repoURL` = your GitHub repo URL
+- `spec.source.targetRevision` = your branch (for example `main`)
 
-### 6) Apply GitOps applications
+### 4) Apply GitOps applications
 
 ```powershell
 kubectl apply -f application.yaml
@@ -103,86 +126,120 @@ kubectl apply -f argocd/application-chaos.yaml
 kubectl get application -n argocd -o wide
 ```
 
-Expected: all apps eventually show **Synced** and **Healthy/Progressing**.
+Expected: all applications become `Synced` and `Healthy/Progressing`.
 
-## Accessing services
+## Day-to-day usage
 
-### App URL
+### Make a release change
+
+1. Edit manifest config (example: `k8s/deployment.yaml`).
+2. Commit and push to tracked branch.
+3. Verify rollout:
+
+```powershell
+kubectl get application -n argocd -w
+kubectl get pods -n nexus -w
+```
+
+### Access UIs/services
+
+- **App**
 
 ```powershell
 kubectl -n nexus port-forward svc/nexus-service 18080:80
 ```
 
-Open: `http://127.0.0.1:18080`
+Open `http://127.0.0.1:18080`
 
-### ArgoCD UI
+- **ArgoCD**
 
 ```powershell
 minikube service argocd-server -n argocd
 ```
 
-Login:
+Initial login:
 
 - Username: `admin`
-- Password (initial):
+- Password (macOS/Linux):
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode; echo
+```
+
+- Password (PowerShell):
 
 ```powershell
 $b64 = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}"
 [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))
 ```
 
-### Grafana UI (optional)
+- **Grafana**
 
 ```powershell
 kubectl -n monitoring port-forward svc/kube-prom-stack-grafana 3000:80
 ```
 
-Open: `http://127.0.0.1:3000`
+Open `http://127.0.0.1:3000`
 
-## Validate GitOps + self-healing
+## Self-healing test checklist
 
-### GitOps change propagation
+Use this sequence to verify resilience:
 
-1. Edit a value in `k8s/deployment.yaml` (for example `BG_COLOR`).
-2. Commit and push.
-3. ArgoCD auto-syncs and rolls pods.
-
-### Self-healing check
+1. **Pod delete recovery**
 
 ```powershell
 kubectl delete pod -n nexus -l app=nexus-app
 kubectl get pods -n nexus -w
 ```
 
-Pods are recreated automatically.
+Expected: deleted pods are recreated.
 
-### Chaos schedule check
+2. **Drift correction**
+
+```powershell
+kubectl scale deployment nexus-app -n nexus --replicas=1
+kubectl get deployment nexus-app -n nexus -w
+```
+
+Expected: ArgoCD restores desired replica count from Git.
+
+3. **Chaos resilience**
 
 ```powershell
 kubectl get schedule,podchaos -n chaos-mesh
 kubectl get pods -n nexus -w
 ```
 
+Expected: periodic pod terminations and automatic recovery.
+
 ## Troubleshooting
 
-- **`kubernetes cluster unreachable`**
-  - Run: `minikube update-context`
-  - Then: `minikube start --driver=docker`
-- **Argo app OutOfSync due to missing CRDs**
-  - Ensure Helm dependency stacks above are installed first
-- **`minikube service` on Windows not reachable**
-  - Use `kubectl port-forward` instead
-- **ArgoCD password command fails with `base64 not recognized` on Windows**
-  - Use the PowerShell decoding snippet shown above
+- **`EOF` / `TLS handshake timeout` / API unreachable**
+  - `minikube update-context`
+  - `minikube start --driver=docker`
+  - Retry command
+- **Argo app stuck `OutOfSync` with missing CRDs**
+  - Ensure monitoring + chaos Helm dependencies are installed first
+- **Windows: `base64` command not found**
+  - Use PowerShell decode snippet in this README
+- **`minikube service` unstable on Windows Docker driver**
+  - Use `kubectl port-forward` for reliable access
+
+## Security note
+
+This project is for local/lab usage by default. Before production usage, harden:
+
+- ArgoCD authentication and RBAC
+- Secrets management (do not store secrets in Git)
+- Image provenance and vulnerability scanning
+- Network policies and TLS settings
 
 ## Contributing
 
-Contributions are welcome. Please open an issue or PR with a clear description of:
+PRs are welcome.
 
-- what changed
-- why it is needed
-- how it was tested
+Please include:
 
----
-
-If you use this repository for learning or workshops, feel free to fork and adapt it.
+- What changed
+- Why it changed
+- How you tested it
